@@ -35,18 +35,6 @@
     button {
         border-radius: 10px;
     }
-    /* Normalize existing rounded utilities to 10px */
-    .rounded,
-    .rounded-sm,
-    .rounded-md,
-    .rounded-lg,
-    .rounded-xl,
-    .rounded-2xl,
-    .rounded-3xl,
-    .rounded-4xl,
-    .rounded-full {
-        border-radius: 10px !important;
-    }
 }
 
 /* Keep layout width stable when scrollbars appear */

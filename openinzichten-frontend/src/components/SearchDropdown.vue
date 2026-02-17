@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, ref, watch, onMounted } from "vue";
 import InfoToolTipButton from "./InfoTooltipButton.vue";
 
 type Item = { label: string; value: string };
@@ -26,14 +26,12 @@ const props = withDefaults(
     },
 );
 
-const { id, label, items, showTooltip, tooltipText } = props;
-
 const open = ref(false);
 const query = ref("");
 const inputEl = ref<HTMLInputElement | null>(null);
 const focused = ref(false);
 
-const selectedLabel = computed(() => items.find((i) => i.value === model.value)?.label || "");
+const selectedLabel = computed(() => props.items.find((i) => i.value === model.value)?.label || "");
 
 watch(
     () => model.value,
@@ -43,10 +41,21 @@ watch(
     { immediate: true },
 );
 
+// Update query when items change and we have a selected value but no query yet
+watch(
+    () => props.items,
+    () => {
+        if (!query.value && selectedLabel.value) {
+            query.value = selectedLabel.value;
+        }
+    },
+    { deep: true }
+);
+
 const filtered = computed(() => {
     const q = query.value.trim().toLowerCase();
-    if (!q) return items.slice(0, 50);
-    return items.filter((i) => i.label.toLowerCase().includes(q)).slice(0, 50);
+    if (!q) return props.items.slice(0, 50);
+    return props.items.filter((i) => i.label.toLowerCase().includes(q)).slice(0, 50);
 });
 
 function onFocus() {
@@ -56,7 +65,16 @@ function onFocus() {
 
 function onBlur() {
     focused.value = false;
-    setTimeout(() => (open.value = false), 120);
+    // Delay closing so @click can trigger on results
+    setTimeout(() => {
+        open.value = false;
+        // If nothing was selected, reset query to the current selection label
+        if (!model.value || model.value === "") {
+             query.value = "";
+        } else {
+             query.value = selectedLabel.value;
+        }
+    }, 200);
 }
 
 function select(item: Item) {
@@ -66,7 +84,7 @@ function select(item: Item) {
 }
 
 onMounted(() => {
-    if (!model.value && selectedLabel.value) {
+    if (model.value && selectedLabel.value) {
         query.value = selectedLabel.value;
     }
 });
@@ -83,6 +101,7 @@ onMounted(() => {
             :disabled="disabled"
             @focus="onFocus"
             @blur="onBlur"
+            autocomplete="off"
             class="peer w-full border border-gray-300 rounded-[10px] p-2 focus:outline-none focus:ring-2 focus:ring-brand-purple"
         />
         <label
@@ -97,18 +116,20 @@ onMounted(() => {
         </div>
         <ul
             v-if="open && filtered.length > 0"
-            class="absolute left-0 right-0 mt-1 max-h-64 overflow-y-auto bg-white border border-gray-200 rounded-[10px] shadow z-10 scroll-stable"
+            class="absolute left-0 right-0 mt-1 max-h-64 overflow-y-auto bg-white border border-gray-200 rounded-[10px] shadow-lg z-50 scroll-stable"
         >
             <li
                 v-for="item in filtered"
                 :key="`${item.value}|${item.label}`"
-                class="px-3 py-2 hover:bg-gray-100 cursor-pointer"
+                class="px-4 py-3 hover:bg-gray-100 cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap text-sm border-b last:border-0 border-gray-100"
                 @mousedown.prevent
                 @click="select(item)"
             >
                 {{ item.label }}
             </li>
-            <li v-if="filtered.length === 0" class="px-3 py-2 text-gray-500">Geen resultaten</li>
         </ul>
+        <div v-if="open && query && filtered.length === 0" class="absolute left-0 right-0 mt-1 p-3 bg-white border border-gray-200 rounded-[10px] shadow-lg z-50 text-gray-500 text-sm">
+            Geen resultaten gevonden voor "{{ query }}"
+        </div>
     </div>
 </template>

@@ -11,6 +11,8 @@ import type {
     ReformattedStoryPayload,
     StoryOrderBy,
     StoryPayload,
+    QuestionAnswer,
+    StoryValidationResponse,
 } from "@/utils/Story";
 import type { ResponseState, SuccessOrError } from "@/utils/Error";
 import { apiFetch } from "@/utils/Api";
@@ -272,6 +274,116 @@ export const useStoryStore = defineStore("story", {
                     state: "failed",
                     errorResponse: {
                         error: e instanceof Error ? e.message : "Onbekende fout bij AI-verhaalverbetering.",
+                    },
+                };
+            }
+        },
+
+
+        async generateStory(inputs: QuestionAnswer[]): Promise<ResponseState<ReformattedStoryPayload>> {
+            const token = localStorage.getItem("token");
+            if (!token) {
+                return {
+                    state: "failed",
+                    errorResponse: { error: "Je moet ingelogd zijn om een verhaal te genereren." },
+                };
+            }
+
+            try {
+                // Reuse timeout logic or rate limiting if needed, but for now direct call
+                // Note: The backend has rate limiting @RateLimit(requests = 5, perSeconds = 3600)
+                const resp = await fetchTimeout(`${BACKEND_URL}/stories/ai/generate`, AI_FETCH_TIMEOUT_MS, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({ inputs }),
+                });
+
+                if (resp.status === 200) {
+                    const data: ReformattedStoryPayload = await resp.json();
+                    return {
+                        state: "success",
+                        response: data,
+                    };
+                }
+
+                if (resp.status === 429) {
+                    return {
+                        state: "failed",
+                        errorResponse: {
+                            error: "Je hebt het maximum aantal AI-verzoeken per uur bereikt. Probeer later opnieuw.",
+                        },
+                    };
+                }
+
+                return {
+                    state: "failed",
+                    errorResponse: {
+                        error: "Er is iets misgegaan bij het genereren van het verhaal.",
+                    },
+                };
+            } catch (e: Error | unknown) {
+                console.log(e);
+                return {
+                    state: "failed",
+                    errorResponse: {
+                        error: e instanceof Error ? e.message : "Onbekende fout bij AI-verhaalgeneratie.",
+                    },
+                };
+            }
+        },
+
+
+        async validateStory(title: string, content: string): Promise<ResponseState<StoryValidationResponse>> {
+            const token = localStorage.getItem("token");
+            if (!token) {
+                return {
+                    state: "failed",
+                    errorResponse: { error: "Je moet ingelogd zijn." },
+                };
+            }
+
+            try {
+                const resp = await fetchTimeout(`${BACKEND_URL}/stories/ai/validate`, AI_FETCH_TIMEOUT_MS, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({ title, content }),
+                });
+
+                if (resp.status === 200) {
+                    const data: StoryValidationResponse = await resp.json();
+                    return {
+                        state: "success",
+                        response: data,
+                    };
+                }
+
+                if (resp.status === 429) {
+                    return {
+                        state: "failed",
+                        errorResponse: {
+                            error: "Je hebt het maximum aantal AI-verzoeken per uur bereikt. Probeer later opnieuw.",
+                        },
+                    };
+                }
+
+                return {
+                    state: "failed",
+                    errorResponse: {
+                        error: "Validatie mislukt.",
+                    },
+                };
+            } catch (e: Error | unknown) {
+                console.log(e);
+                return {
+                    state: "failed",
+                    errorResponse: {
+                        error: e instanceof Error ? e.message : "Onbekende fout bij validatie.",
                     },
                 };
             }

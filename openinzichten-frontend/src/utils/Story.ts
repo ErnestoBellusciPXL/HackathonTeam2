@@ -33,3 +33,19 @@ export const storySort = ref([
     { label: "Nieuwste", value: StoryOrderBy.NEWEST },
     { label: "Populair", value: StoryOrderBy.MOST_LIKED },
 ]);
+
+export interface QuestionAnswer {
+    question: string;
+    answer: string;
+}
+
+export interface StoryChange {
+    reason: string;
+    description: string;
+}
+
+export interface StoryValidationResponse {
+    fixedTitle: string;
+    fixedContent: string;
+    changes: StoryChange[];
+}

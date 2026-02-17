@@ -13,9 +13,17 @@ export default defineConfig({
         global: 'window',
     },
     server: {
+        host: "0.0.0.0", // Expose to all network interfaces for Docker
+        port: 5173,
+        proxy: {
+            "/api": {
+                target: "http://backend:8080",
+                changeOrigin: true,
+            },
+        },
         // Prevent the Vite dev server from reacting to macOS metadata files
-        // which can appear on external drives and cause unwanted restarts.
         watch: {
+            usePolling: true, // Required for Docker on Windows/Mac
             // ignored accepts a string or array of glob/regex patterns
             ignored: ["**/._*", "._*", "**/.DS_Store", ".DS_Store"],
         },
