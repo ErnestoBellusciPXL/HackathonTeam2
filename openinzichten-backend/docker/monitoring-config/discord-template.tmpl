@@ -1,0 +1,17 @@
+{{ define "discord.default.title" }}
+[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .GroupLabels.alertname }}
+{{ end }}
+
+{{ define "discord.default.message" }}
+{{ range .Alerts }}
+**Alert:** {{ .Labels.alertname }}
+**Severity:** {{ .Labels.severity }}
+**Component:** {{ .Labels.component }}
+**Status:** {{ .Status }}
+**Summary:** {{ .Annotations.summary }}
+**Description:** {{ .Annotations.description }}
+{{ if .StartsAt }}**Started:** {{ .StartsAt.Format "2006-01-02 15:04:05" }}{{ end }}
+{{ if .EndsAt }}**Ended:** {{ .EndsAt.Format "2006-01-02 15:04:05" }}{{ end }}
+---
+{{ end }}
+{{ end }}

@@ -1,0 +1,19 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ['alertname', 'severity', 'component']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 4h
+  receiver: 'discord-notifications'
+
+receivers:
+  - name: 'discord-notifications'
+    discord_configs:
+      - webhook_url: 'https://discord.com/api/webhooks/1451139256201384019/8-XnPMWRPndGl3V-h9Oap9jyQxMCQp037T9ewRZVnc3hdDafFK2wswjrTiEicL1bke-z'
+        title: '{{ template "discord.default.title" . }}'
+        message: '{{ template "discord.default.message" . }}'
+
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'

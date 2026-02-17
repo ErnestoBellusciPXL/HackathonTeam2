@@ -1,0 +1,74 @@
+name: Monitoring
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: self-hosted
+    env:
+      MONITORING_NETWORK: 'monitoring'
+      GRAFANA_USERNAME: ${{ secrets.GRAFANA_USERNAME }}
+      GRAFANA_PASSWORD: ${{ secrets.GRAFANA_PASSWORD }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create required Docker networks
+        run: |
+          if ! docker network inspect "${MONITORING_NETWORK}" >/dev/null 2>&1; then
+              docker network create -d overlay "${MONITORING_NETWORK}"
+              echo "Created network ${MONITORING_NETWORK}"
+            else
+              echo "Network ${MONITORING_NETWORK} already exists, skipping creation."
+            fi
+
+      - name: Remove old monitoring stack
+        run: |
+          for service in $(docker service ls --format '{{.Name}}' | grep '^monitoring'); do
+            echo "Removing service: $service"
+            docker service rm "$service"
+          done
+
+      - name: Deploy Monitoring Stack
+        working-directory: ./docker
+        run: |
+          docker stack deploy -c docker-compose-monitoring.yml monitoring_stack
+
+      - name: Deploy dashboards to Grafana
+        env:
+          GRAFANA_URL: ${{ secrets.GRAFANA_URL }}
+        run: |
+          echo "Waiting for Grafana to be ready..."
+          # Create Basic Auth header
+          AUTH_HEADER="Authorization: Basic $(echo -n "${GRAFANA_USERNAME}:${GRAFANA_PASSWORD}" | base64)"
+          
+          until curl -s -k -f -H "$AUTH_HEADER" "$GRAFANA_URL/api/health"; do
+            echo "Grafana is not ready yet, waiting 5 seconds..."
+            sleep 5
+          done
+
+          # Get all dashboard UIDs (skip the default "Home" dashboard)
+          # We use -f to fail if the server returns an error (like 401) so jq doesn't try to parse error text
+          DASHBOARD_UIDS=$(curl -s -f -H "$AUTH_HEADER" \
+            "$GRAFANA_URL/api/search?query=&" | jq -r '.[] | select(.type=="dash-db") | .uid')
+
+          # Delete each old dashboard
+          for uid in $DASHBOARD_UIDS; do
+            echo "Deleting old dashboard UID: $uid"
+            curl -s -X DELETE "$GRAFANA_URL/api/dashboards/uid/$uid" \
+              -H "$AUTH_HEADER"
+          done
+
+          for dashboard in ./docker/grafana/dashboards/*.json; do
+            echo "Processing $dashboard..."
+            # Wrap the dashboard JSON for Grafana API
+            wrapped_dashboard=$(jq '{dashboard: ., overwrite: true}' "$dashboard")
+          
+            # Send to Grafana API
+            curl -s -X POST "$GRAFANA_URL/api/dashboards/db" \
+              -H "$AUTH_HEADER" \
+              -H "Content-Type: application/json" \
+              -d "$wrapped_dashboard"
+
+            echo "$dashboard deployed successfully!"
+          done

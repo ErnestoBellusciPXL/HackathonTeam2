@@ -1,0 +1,6 @@
+services:
+  db:
+    entrypoint: ["/bin/bash", "/init-staging-db.sh"]
+    volumes:
+      - ./FullData.sql:/docker-entrypoint-initdb.d/FullData.sql:ro
+      - ./init-staging-db.sh:/init-staging-db.sh:ro

@@ -1,0 +1,51 @@
+name: Deploy staging environment backend
+on:
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    env:
+      DB_VOLUME: 'staging_data'
+      ENV: 'staging'
+      REPLICAS: '2'
+      NETWORK_DRIVER: 'overlay'
+      IMAGE_NAME: ${{ vars.DOCKER_IMAGE }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Ensure proxy network exists
+        run: |
+          # Init swarm if not active (needed for overlay networks)
+          docker info | grep -q "Swarm: active" || docker swarm init
+
+          # Create global overlay+attachable 'proxy' network if missing
+          if ! docker network inspect proxy >/dev/null 2>&1; then
+            echo "Creating overlay network 'proxy'..."
+            docker network create -d overlay --attachable proxy
+          else
+            echo "Network 'proxy' already exists, skipping creation."
+          fi
+
+      - name: Deploy backend (zero downtime via Swarm)
+        working-directory: ./docker
+        env:
+          DOCKER_IMAGE: ${{ vars.DOCKER_IMAGE }}
+          MYSQL_DATABASE: ${{ secrets.MYSQL_DATABASE }}
+          MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+          MYSQL_USERNAME: ${{ secrets.MYSQL_USERNAME }}
+          MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          echo "Initializing Swarm if not active..."
+          docker info | grep -q "Swarm: active" || docker swarm init
+
+          # Deploy or update the stack
+          docker stack deploy -c docker-compose.yml -c docker-compose.staging.yml openinzicht_backend_staging
+
+          # Wait for service rollout
+          docker service ps openinzicht_backend_staging_backend --no-trunc
+          docker service ps openinzicht_backend_staging_db --no-trunc

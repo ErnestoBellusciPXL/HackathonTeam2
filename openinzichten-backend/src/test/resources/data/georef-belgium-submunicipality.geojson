@@ -1,0 +1,12 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "mun_name_nl": "ClasspathTown",
+        "mun_code": "CL123"
+      }
+    }
+  ]
+}

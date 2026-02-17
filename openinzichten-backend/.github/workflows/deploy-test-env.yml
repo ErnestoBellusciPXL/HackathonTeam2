@@ -1,0 +1,49 @@
+name: Deploy test environment backend
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: self-hosted
+    env:
+      DB_VOLUME: 'test_data'
+      ENV: 'test'
+      REPLICAS: '1'
+      NETWORK_DRIVER: 'bridge'
+      IMAGE_NAME: ${{ vars.DOCKER_IMAGE }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Ensure proxy network exists
+        run: |
+          # Init swarm if not active (needed for overlay networks)
+          docker info | grep -q "Swarm: active" || docker swarm init
+
+          # Create global overlay+attachable 'proxy' network if missing
+          if ! docker network inspect proxy >/dev/null 2>&1; then
+            echo "Creating overlay network 'proxy'..."
+            docker network create -d overlay --attachable proxy
+          else
+            echo "Network 'proxy' already exists, skipping creation."
+          fi
+
+      - name: Deploy backend test environment
+        working-directory: ./docker
+        env:
+          DOCKER_IMAGE: ${{ vars.DOCKER_IMAGE }}
+          MYSQL_DATABASE: ${{ secrets.MYSQL_DATABASE }}
+          MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+          MYSQL_USERNAME: ${{ secrets.MYSQL_USERNAME }}
+          MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          docker compose -p $ENV -f docker-compose.yml down
+          docker volume rm test_test_data -f
+          docker compose -p $ENV -f docker-compose.yml up -d

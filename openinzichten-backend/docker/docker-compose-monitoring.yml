@@ -1,0 +1,165 @@
+services:
+  # ---------- Prometheus ----------
+  prometheus: # port 9090
+    image: prom/prometheus:latest
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+      - --web.enable-admin-api
+      - --web.enable-remote-write-receiver
+    volumes:
+      - prometheus_data:/prometheus
+      - ./monitoring-config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring-config/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+    networks:
+      - proxy
+    depends_on:
+      - alertmanager
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  # ---------- Alertmanager ----------
+  alertmanager: # port 9093
+    image: prom/alertmanager:latest
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --web.external-url=https://gf.openinzicht.be
+    volumes:
+      - alertmanager_data:/alertmanager
+      - ./monitoring-config/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./monitoring-config/discord-template.tmpl:/etc/alertmanager/templates/discord-template.tmpl:ro
+    networks:
+      - proxy
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  # ---------- Grafana ----------
+  grafana: # port 3000
+    image: grafana/grafana:latest
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USERNAME}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=https://gf.openinzicht.be
+      - GF_SERVER_DOMAIN=gf.openinzicht.be
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    networks:
+      - proxy
+    depends_on:
+      - loki
+      - tempo
+      - prometheus
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  # ---------- Loki ----------
+  loki: # port 3100
+    image: grafana/loki:2.9.0
+    command: -config.file=/etc/loki/loki.yml
+    volumes:
+      - ./monitoring-config/loki.yml:/etc/loki/loki.yml:ro
+      - loki_data:/loki
+    networks:
+      - proxy
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  # ---------- Promtail ----------
+  promtail:
+    image: grafana/promtail:2.9.0
+    user: root
+    command: -config.file=/etc/promtail/promtail.yml
+    volumes:
+      - /var/log:/var/log:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /etc/machine-id:/etc/machine-id:ro
+      - ./monitoring-config/promtail.yml:/etc/promtail/promtail.yml:ro
+      - promtail_positions:/tmp
+    networks:
+      - proxy
+    depends_on:
+      - loki
+      - cadvisor
+      - grafana
+      - prometheus
+      - tempo
+    deploy:
+      restart_policy:
+        condition: any
+
+  # ---------- Tempo ----------
+  tempo:
+    image: grafana/tempo:latest
+    user: root
+    command: [ "-config.file=/etc/tempo.yml" ]
+    volumes:
+      - ./monitoring-config/tempo.yml:/etc/tempo.yml:ro
+      - tempo_data:/tmp/tempo
+    expose:
+      - "3200"
+      - "4317"
+      - "4318"
+    networks:
+      - proxy
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  # ---------- cAdvisor ----------
+  cadvisor: # port 8080
+    image: gcr.io/cadvisor/cadvisor:latest
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - proxy
+    deploy:
+      restart_policy:
+        condition: any
+
+  # ---------- Node Exporter ----------
+  node-exporter: # port 9100
+    image: prom/node-exporter:latest
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --collector.filesystem.mount-points-exclude
+      - "^/(sys|proc|dev|host|etc)($$|/)"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    networks:
+      - proxy
+    deploy:
+      restart_policy:
+        condition: any
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  promtail_positions:
+  loki_data:
+  tempo_data:
+  alertmanager_data:
+
+networks:
+  proxy:
+    external: true

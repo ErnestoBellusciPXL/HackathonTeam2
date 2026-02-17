@@ -1,0 +1,44 @@
+services:
+  # MySQL database mock
+  # Used to run app in IntelliJ
+  mysql:
+    image: mysql:8.4
+    container_name: dev-mysql
+    restart: unless-stopped
+    ports:
+      # Uses the default MySQL port
+      - "3306:3306"
+    environment:
+      MYSQL_DATABASE: app_db
+      MYSQL_USER: app_user
+      MYSQL_PASSWORD: dev_password
+      MYSQL_ROOT_PASSWORD: dev_root_password
+    volumes:
+      - mysql_data:/var/lib/mysql
+      # Ability to pass initialization scripts and schemas
+      # - ./init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: [ "CMD-SHELL", "mysqladmin ping -h localhost -p$$MYSQL_ROOT_PASSWORD || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+    #---------------------------------
+
+    # Mailpit receives mails from local java app 
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: mailpit
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # Web UI
+    environment:
+      MP_MAX_MESSAGES: "1000"
+    healthcheck:
+      test: [ "CMD", "sh", "-c", "nc -z localhost 1025 && nc -z localhost 8025" ]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+
+volumes:
+  mysql_data:

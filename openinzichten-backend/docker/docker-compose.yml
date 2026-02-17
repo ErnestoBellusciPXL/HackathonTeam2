@@ -1,0 +1,83 @@
+services:
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_USER: ${MYSQL_USERNAME}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    expose:
+      - "3306:3306"
+    networks:
+      - network
+    volumes:
+      - ${DB_VOLUME}:/var/lib/mysql
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "127.0.0.1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      replicas: 1
+      update_config:
+        order: stop-first
+        delay: 10s
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+
+  backend:
+    image: ${IMAGE_NAME}
+    expose:
+      - "8080:8080"
+    networks:
+      network:
+        aliases:
+          - backend
+      proxy:
+    environment:
+      SPRING_PROFILES_ACTIVE: default
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/${MYSQL_DATABASE}
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      OPENROUTER_KEY: ${OPENROUTER_API_KEY}
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://monitoring_stack_tempo:4318/v1/traces
+      MANAGEMENT_TRACING_ENABLED: "true"
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+      OTEL_RESOURCE_ATTRIBUTES: "deployment.environment=${ENV:-unknown}"
+    labels:
+      - "environment=${ENV:-unknown}"
+    depends_on:
+      - db
+    deploy:
+      mode: replicated
+      replicas: ${REPLICAS:-2}
+      update_config:
+        parallelism: 1
+        delay: 20s
+        order: start-first
+      restart_policy:
+        condition: any
+      placement:
+        constraints: [ ]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+
+volumes:
+  prod_data:
+    driver: local
+  staging_data:
+    driver: local
+  test_data:
+    driver: local
+
+networks:
+  network:
+    driver: ${NETWORK_DRIVER:-bridge}
+  proxy:
+    external: true
+  

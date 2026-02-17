@@ -1,0 +1,57 @@
+services:
+  db-sonarqube:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: sonar
+      POSTGRES_PASSWORD: ${SQ_PASSWORD}
+      POSTGRES_DB: sonarqube
+    mem_limit: 256m
+    cpus: 0.25
+    volumes:
+      - sonarqube_db_data:/var/lib/postgresql/data
+    networks:
+      - sonarnet
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U sonar -d sonarqube || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  sonarqube:
+    image: sonarqube:community
+    depends_on:
+      db-sonarqube:
+        condition: service_healthy
+    environment:
+      SONAR_JDBC_URL: jdbc:postgresql://db-sonarqube:5432/sonarqube
+      SONAR_JDBC_USERNAME: sonar
+      SONAR_JDBC_PASSWORD: ${SQ_PASSWORD}
+      SONAR_WEB_JVM_OPTS: "-Xms512m -Xmx1024m"
+      SONAR_CE_JVM_OPTS: "-Xms512m -Xmx1536m"
+    mem_limit: 2.5g
+    cpus: 1.0
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_extensions:/opt/sonarqube/extensions
+      - sonarqube_logs:/opt/sonarqube/logs
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    networks:
+      sonarnet:
+      proxy:
+    restart: unless-stopped
+
+volumes:
+  sonarqube_db_data:
+  sonarqube_data:
+  sonarqube_extensions:
+  sonarqube_logs:
+
+networks:
+  sonarnet:
+    driver: bridge
+  proxy:
+    external: true

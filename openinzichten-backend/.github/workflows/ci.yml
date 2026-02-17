@@ -1,0 +1,202 @@
+name: CI
+on:
+  push:
+    branches: [ "main", "development" ]
+  pull_request:
+    branches: [ "main", "development" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+concurrency:
+  group: openinzichten-backend-ci
+  cancel-in-progress: false
+
+jobs:
+  # sonarqube:
+  #   runs-on: self-hosted
+  #   continue-on-error: true
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+
+  #     - name: Check if SonarQube is up
+  #       id: check_health
+  #       run: |
+  #         # Try to get health status
+  #         response=$(curl -s -u "${{ secrets.HealthCheckTokenSonarQube }}" https://sonarqube.openinzicht.be/api/system/health || echo "")
+  #         deploy=true
+
+  #         # Extract health if response is not empty
+  #         if [ -n "$response" ]; then
+  #           health=$(echo "$response" | grep -oP '"health"\s*:\s*"\K[^"]+')
+  #           echo "SonarQube health status: $health"
+
+  #           # If health is GREEN, skip deployment
+  #           if [ "$health" = "GREEN" ]; then
+  #             echo "SonarQube is already running. Skipping deployment."
+  #             deploy=false
+  #           else
+  #             echo "SonarQube is not fully up. Will deploy."
+  #           fi
+  #         else
+  #           echo "Error fetching health status. Will deploy."
+  #         fi
+
+  #         # Set GitHub output
+  #         echo "deploy=$deploy" >> $GITHUB_OUTPUT
+
+  #     - name: Build and deploy SonarQube
+  #       if: steps.check_health.outputs.deploy == 'true'
+  #       working-directory: ./docker
+  #       env:
+  #         SQ_PASSWORD: ${{ secrets.SQ_PASSWORD }}
+  #       run: docker compose -f docker-compose-sonarqube.yml up -d --build
+
+  build:
+    runs-on: self-hosted
+    # needs: sonarqube
+    env:
+      SONAR_HOST_URL: https://sonarqube.openinzicht.be
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Run tests
+        run: |
+          mvn -B clean test 
+          mvn jacoco:report
+
+      - name: Upload test summary
+        if: success() || failure()
+        uses: dorny/test-reporter@v1
+        with:
+          name: Unit Test Results
+          path: target/surefire-reports/*.xml
+          reporter: java-junit
+
+      - name: Upload JaCoCo coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-coverage
+          path: target/site/jacoco/
+
+      - name: JaCoCo PR comment & checks
+        if: ${{ github.event_name == 'push' || github.event_name == 'pull_request' }}
+        uses: madrapps/jacoco-report@v1.7.1
+        with:
+          paths: target/site/jacoco/jacoco.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # - name: Run Sonar via Maven
+      #   env:
+      #     SONAR_TOKEN: ${{ secrets.SONARQUBE_BACKEND_TOKEN }}
+      #   run: |
+      #     mvn clean verify sonar:sonar \
+      #       -Dsonar.projectKey=OpenInzicht \
+      #       -Dsonar.projectName='OpenInzicht' \
+      #       -Dsonar.host.url=${{ env.SONAR_HOST_URL }} \
+      #       -Dsonar.token=${SONAR_TOKEN} \
+      #       -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
+
+      - name: Trivy security scan
+        id: trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: "fs"
+          format: "table"
+          output: "trivy-report.txt"
+          severity: "HIGH,CRITICAL"
+          ignore-unfixed: true
+          exit-code: 1
+
+      - name: Print Trivy report to logs
+        if: always()
+        run: |
+          echo "============ Trivy Report (backend) ============"
+          if [ -f trivy-report.txt ]; then
+            cat trivy-report.txt
+          else
+            echo "No trivy-report.txt found"
+          fi
+
+      - name: Upload Trivy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: trivy-report.txt
+
+      - name: Build Docker image
+        id: docker_build
+        run: |
+          docker build --memory=4g -f docker/Dockerfile -t ${{ vars.DOCKER_IMAGE }}:latest .
+          docker tag ${{ vars.DOCKER_IMAGE }}:latest ${{ vars.DOCKER_IMAGE }}:${{ github.sha }}
+
+      - name: Cleanup old .tar archives
+        run: |
+          BACKUP_DIR="/home/github/docker-images"
+          mkdir -p "$BACKUP_DIR"
+          LOG_FILE="/home/github/docker-image-cleanup.log"
+          MAX_FILES=10  # <--- change this to how many archives you want to keep
+
+          echo "[$(date)] Cleanup started in $BACKUP_DIR" | tee -a "$LOG_FILE"
+
+          # Get all matching files sorted by modification time (newest first)
+          mapfile -t files < <(ls -1t "$BACKUP_DIR"/${{ vars.DOCKER_IMAGE }}-*.tar 2>/dev/null || true)
+
+          # If there are more than MAX_FILES, delete the older ones
+          if [ "${#files[@]}" -gt "$MAX_FILES" ]; then
+            echo "Found ${#files[@]} files, keeping newest $MAX_FILES, deleting the rest." | tee -a "$LOG_FILE"
+
+            # Files to delete: from index MAX_FILES to end
+            for f in "${files[@]:$MAX_FILES}"; do
+              echo "Deleting $f" | tee -a "$LOG_FILE"
+              rm -f -- "$f"
+            done
+          else
+            echo "Nothing to delete. (${#files[@]} files, limit is $MAX_FILES)" | tee -a "$LOG_FILE"
+          fi
+
+          echo "[$(date)] Cleanup completed" | tee -a "$LOG_FILE"
+
+      - name: Create .tar archive with docker image
+        run: |
+          mkdir -p /home/github/docker-images
+          TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
+          IMAGE_TAR="/home/github/docker-images/${{ vars.DOCKER_IMAGE }}-${TIMESTAMP}-${{ github.sha }}.tar"
+          docker save -o "$IMAGE_TAR" ${{ vars.DOCKER_IMAGE }}:latest
+
+      - name: Close pull request on failure
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          REPO="${{ github.repository }}"
+          
+          # Post a comment
+          curl -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$REPO/issues/$PR_NUMBER/comments" \
+            -d '{
+              "body": "This pull request has been automatically closed due to CI failure.\n\n**Failed steps:**\n- Install dependencies: ${{ steps.install.outcome }}\n- Trivy scan: ${{ steps.trivy.outcome }}\n- npm audit: ${{ steps.audit.outcome }}\n- Docker build: ${{ steps.docker_build.outcome }}"
+            }'
+          
+          # Close the PR
+          curl -X PATCH \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$REPO/pulls/$PR_NUMBER" \
+            -d '{"state": "closed"}'
