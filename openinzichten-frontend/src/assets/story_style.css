@@ -1,0 +1,64 @@
+.story-content h1,
+div#improvedVersion h1 {
+    font-size: 2em;
+    white-space: normal;
+}
+
+.story-content h2,
+div#improvedVersion h2 {
+    font-size: 1.5em;
+    white-space: normal;
+}
+
+.story-content h3,
+div#improvedVersion h3 {
+    font-size: 1.17em;
+    white-space: normal;
+}
+
+.story-content h4,
+div#improvedVersion h4 {
+    font-size: 1em;
+    white-space: normal;
+}
+
+.story-content h5,
+div#improvedVersion h5 {
+    font-size: 0.83em;
+    white-space: normal;
+}
+
+.story-content h6,
+div#improvedVersion h6 {
+    font-size: 0.67em;
+    white-space: normal;
+}
+
+.story-content ul,
+div#improvedVersion ul,
+.story-content ol,
+div#improvedVersion ol {
+    padding-left: 40px;
+    margin: 1em 0;
+    white-space: normal;
+}
+
+.story-content ul,
+div#improvedVersion ul {
+    list-style: disc;
+}
+
+.story-content ol,
+div#improvedVersion ol {
+    list-style: decimal;
+}
+
+.story-content li ul,
+div#improvedVersion li ul {
+    list-style: circle;
+}
+
+.story-content li li ul,
+div#improvedVersion li li ul {
+    list-style: square;
+}

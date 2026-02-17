@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+@theme {
+    --color-brand-cyan: #32dceb;
+    --color-brand-cyan-dark: #06b6d4;
+
+    --color-brand-purple: #6e5ce0;
+    --color-brand-purple-dark: #4d3db6;
+
+    --color-brand-vanilla: #fefaee;
+
+    --font-rubik: Rubik, ui-sans-serif, system-ui;
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+    *,
+    ::after,
+    ::before,
+    ::backdrop,
+    ::file-selector-button {
+        border-color: var(--color-gray-200, currentcolor);
+    }
+    /* Default rounded corners across common elements */
+    input,
+    select,
+    textarea,
+    button {
+        border-radius: 10px;
+    }
+    /* Normalize existing rounded utilities to 10px */
+    .rounded,
+    .rounded-sm,
+    .rounded-md,
+    .rounded-lg,
+    .rounded-xl,
+    .rounded-2xl,
+    .rounded-3xl,
+    .rounded-4xl,
+    .rounded-full {
+        border-radius: 10px !important;
+    }
+}
+
+/* Keep layout width stable when scrollbars appear */
+.scroll-stable {
+    scrollbar-gutter: stable both-edges;
+}
+
+.brand-link-purple-dark-bold {
+    @apply hover:text-brand-purple-dark font-medium transition duration-300;
+}
+
+.brand-link-purple-dark {
+    @apply hover:text-brand-purple-dark transition duration-300;
+}

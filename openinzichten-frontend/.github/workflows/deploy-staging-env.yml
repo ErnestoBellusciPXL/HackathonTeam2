@@ -1,0 +1,50 @@
+name: Deploy staging environment frontend
+on:
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    env:
+      FRONTEND_PORT: '80'
+      ENV: 'staging'
+      REPLICAS: '2'
+      IMAGE_NAME: ${{ vars.DOCKER_IMAGE }}
+      BACKEND_HOST: 'openinzicht_backend_staging_backend:8080'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.21.0'
+      
+      - name: Ensure proxy network exists
+        run: |
+          # Init swarm if not active (needed for overlay networks)
+          docker info | grep -q "Swarm: active" || docker swarm init
+
+          # Create global overlay+attachable 'proxy' network if missing
+          if ! docker network inspect proxy >/dev/null 2>&1; then
+            echo "Creating overlay network 'proxy'..."
+            docker network create -d overlay --attachable proxy
+          else
+            echo "Network 'proxy' already exists, skipping creation."
+          fi
+
+      - name: Deploy frontend (zero downtime via Swarm)
+        working-directory: ./docker
+        run: |
+
+          echo "Initializing Swarm if not active..."
+          docker info | grep -q "Swarm: active" || docker swarm init
+
+          # Deploy or update the stack
+          docker stack deploy -c docker-compose.yml openinzicht_frontend_staging
+
+          # Wait for service rollout
+          docker service ps openinzicht_frontend_staging_web --no-trunc
+

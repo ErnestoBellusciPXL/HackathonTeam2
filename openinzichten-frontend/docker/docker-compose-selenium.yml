@@ -1,0 +1,10 @@
+services:
+  selenium:
+    image: seleniarm/standalone-chromium:latest
+    container_name: selenium-standalone
+    ports:
+      - "4444:4444"   # WebDriver endpoint
+      - "7900:7900"   # NoVNC browser UI
+    volumes:
+      - ../frontend_testing:/frontend_testing
+    user: github

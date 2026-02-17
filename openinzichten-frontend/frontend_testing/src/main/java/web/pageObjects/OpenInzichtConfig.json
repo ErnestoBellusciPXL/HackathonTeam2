@@ -1,0 +1,8 @@
+{
+  "baseUrlPROD": "http://localhost:5173/",
+  "baseUrls": {
+    "DEV": "http://localhost:5173/",
+    "QA": "http://localhost:5173/",
+    "STAGE": "http://localhost:5173/"
+  }
+}

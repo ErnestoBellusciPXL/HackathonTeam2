@@ -1,0 +1,231 @@
+name: CI
+on:
+  push:
+    branches: ["main", "development"]
+  pull_request:
+    branches: ["main", "development"]
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: openinzichten-frontend-ci
+  cancel-in-progress: false
+
+jobs:
+  # sonarqube:
+  #   runs-on: self-hosted
+  #   continue-on-error: true
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+
+  #     - name: Check if SonarQube is up
+  #       id: check_health
+  #       run: |
+  #         # Try to get health status
+  #         response=$(curl -s -u "${{ secrets.HealthCheckTokenSonarQube }}" https://sonarqube.openinzicht.be/api/system/health || echo "")
+  #         deploy=true
+
+  #         # Extract health if response is not empty
+  #         if [ -n "$response" ]; then
+  #           health=$(echo "$response" | grep -oP '"health"\s*:\s*"\K[^"]+')
+  #           echo "SonarQube health status: $health"
+
+  #           # If health is GREEN, skip deployment
+  #           if [ "$health" = "GREEN" ]; then
+  #             echo "SonarQube is already running. Skipping deployment."
+  #             deploy=false
+  #           else
+  #             echo "SonarQube is not fully up. Will deploy."
+  #           fi
+  #         else
+  #           echo "Error fetching health status. Will deploy."
+  #         fi
+
+  #         # Set GitHub output
+  #         echo "deploy=$deploy" >> $GITHUB_OUTPUT
+
+  #     - name: Build and deploy SonarQube
+  #       if: steps.check_health.outputs.deploy == 'true'
+  #       working-directory: ./docker
+  #       env:
+  #         SQ_PASSWORD: ${{ secrets.SQ_PASSWORD }}
+  #       run: docker compose -f docker-compose-sonarqube.yml up -d --build
+
+  build:
+    runs-on: self-hosted
+    # needs: sonarqube
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        id: install
+        run: npm ci
+
+        # Required for Sonar-CLI
+        # Official action/docker doesnt run on ARM cpu
+      #- name: Set up Java
+      #  uses: actions/setup-java@v4
+      #  with:
+      #    distribution: temurin
+      #    java-version: '21'
+
+      #- name: Download SonarScanner CLI
+      #  run: |
+      #    SCANNER_VERSION=7.3.0.5189
+      #    ZIP="sonar-scanner-cli-${SCANNER_VERSION}-linux-aarch64.zip"
+      #    wget https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/$ZIP
+      #    unzip $ZIP
+      #    # Auto-detect extracted folder
+      #    SCANNER_DIR=$(find . -maxdepth 1 -type d -name "sonar-scanner*" | head -n 1)
+      #    echo "Detected SonarScanner folder: $SCANNER_DIR"
+      #    # Normalize path
+      #    mv "$SCANNER_DIR" sonar-scanner
+      #    echo "$PWD/sonar-scanner/bin" >> "$GITHUB_PATH"
+
+      #- name: Run SonarScanner
+      #  env:
+      #    SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      #  run: |
+      #    sonar-scanner \
+      #      -Dsonar.projectKey=Openinzicht-Frontend \
+      #      -Dsonar.sources=. \
+      #      -Dsonar.host.url=https://46.224.24.225:9000 \
+      #      -Dsonar.token=$SONAR_TOKEN
+
+      - name: Trivy scan
+        id: trivy
+
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+
+          scan-type: "fs"
+          format: "table"
+          output: "trivy-report.txt"
+          severity: "HIGH,CRITICAL"
+          ignore-unfixed: true
+          exit-code: 1 # fail job if HIGH/CRITICAL vulns are found
+
+      - name: Print Trivy report to logs
+        if: always()
+        run: |
+          echo "============ Trivy Report (backend) ============"
+          if [ -f trivy-report.txt ]; then
+            cat trivy-report.txt
+          else
+            echo "No trivy-report.txt found"
+          fi
+
+      - name: Upload Trivy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: trivy-report.txt
+
+      - name: npm audit (HIGH+MODERATE)
+        id: audit
+        run: npm audit --audit-level=moderate
+
+      - name: Build Docker image
+        id: docker_build
+        env:
+          DOCKER_BUILDKIT: 1
+        run: |
+          nice -n 10 ionice -c2 -n7 \
+            docker build \
+              --memory=2g \
+              --cpuset-cpus=0-1 \
+              -f docker/Dockerfile \
+              -t ${{ vars.DOCKER_IMAGE }}:latest .
+
+          docker tag ${{ vars.DOCKER_IMAGE }}:latest ${{ vars.DOCKER_IMAGE }}:${{ github.sha }}
+
+      - name: Cleanup old .tar archives
+        run: |
+          BACKUP_DIR="/home/github/docker-images"
+          mkdir -p "$BACKUP_DIR"
+          LOG_FILE="/home/github/docker-image-cleanup-frontend.log"
+          MAX_FILES=3  # how many frontend archives you want to keep
+
+          echo "[$(date)] Frontend cleanup started in $BACKUP_DIR" | tee -a "$LOG_FILE"
+
+          # Only touch frontend archives
+          mapfile -t files < <(ls -1t "$BACKUP_DIR"/${{ vars.DOCKER_IMAGE }}-*.tar 2>/dev/null || true)
+
+          if [ "${#files[@]}" -gt "$MAX_FILES" ]; then
+            echo "Found ${#files[@]} frontend archives, keeping newest $MAX_FILES, deleting the rest." | tee -a "$LOG_FILE"
+            for f in "${files[@]:$MAX_FILES}"; do
+              echo "Deleting $f" | tee -a "$LOG_FILE"
+              rm -f -- "$f"
+            done
+          else
+            echo "Nothing to delete. (${#files[@]} frontend archives, limit is $MAX_FILES)" | tee -a "$LOG_FILE"
+          fi
+
+          echo "[$(date)] Frontend cleanup completed" | tee -a "$LOG_FILE"
+
+      - name: Create .tar archive with Docker image
+        run: |
+          mkdir -p /home/github/docker-images
+          TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
+          IMAGE_TAR="/home/github/docker-images/${{ vars.DOCKER_IMAGE }}-${TIMESTAMP}-${{ github.sha }}.tar"
+          docker save -o "$IMAGE_TAR" ${{ vars.DOCKER_IMAGE }}:latest
+
+      - name: Cleanup old Docker images
+        run: |
+          IMAGE_REPO="${{ vars.DOCKER_IMAGE }}"
+          KEEP=5  # how many images to keep
+
+          echo "Cleaning old images for $IMAGE_REPO (keeping latest $KEEP)"
+
+          # 1) Remove dangling images (safe for all repos)
+          docker image prune -f || true
+
+          # 2) Remove older images for this repo only
+          mapfile -t IMAGES < <(docker images "$IMAGE_REPO" --format '{{.ID}}' | tail -n +$((KEEP+1)))
+
+          if [ ${#IMAGES[@]} -eq 0 ]; then
+            echo "No old images to remove for $IMAGE_REPO"
+            exit 0
+          fi
+
+          echo "Removing ${#IMAGES[@]} old images for $IMAGE_REPO..."
+          for ID in "${IMAGES[@]}"; do
+            echo "docker rmi $ID"
+            docker rmi "$ID" || true
+          done
+
+      - name: Close pull request on failure
+        if: failure() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          REPO="${{ github.repository }}"
+          
+          # Post a comment
+          curl -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$REPO/issues/$PR_NUMBER/comments" \
+            -d '{
+              "body": "This pull request has been automatically closed due to CI failure.\n\n**Failed steps:**\n- Install dependencies: ${{ steps.install.outcome }}\n- Trivy scan: ${{ steps.trivy.outcome }}\n- npm audit: ${{ steps.audit.outcome }}\n- Docker build: ${{ steps.docker_build.outcome }}"
+            }'
+          
+          # Close the PR
+          curl -X PATCH \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$REPO/pulls/$PR_NUMBER" \
+            -d '{"state": "closed"}'

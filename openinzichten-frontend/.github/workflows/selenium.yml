@@ -1,0 +1,228 @@
+name: Selenium E2E Tests via VPN
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+  statuses: write
+
+jobs:
+  setup-vpn-and-sut:
+    runs-on: self-hosted
+    outputs:
+      sut_base_url: ${{ steps.get-url.outputs.sut_base_url }}
+    env:
+      SUT_PORT: 80
+      SUT_NAME: ci-sut
+      TEST_ENV: test
+      TEST_NETWORK: test_network
+      WG_CONFIG: /etc/wireguard/wg0.conf
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify backend test environment is running
+        run: |
+          echo "Checking that Docker network ${TEST_NETWORK} exists..."
+          if ! docker network inspect "${TEST_NETWORK}" >/dev/null 2>&1; then
+            echo "❌ Network ${TEST_NETWORK} not found."
+            echo "Make sure the 'Deploy test environment backend' workflow has run successfully."
+            exit 1
+          fi
+
+          echo "Listing containers on ${TEST_NETWORK}:"
+          docker network inspect "${TEST_NETWORK}" \
+            --format '{{json .Containers}}' | jq 'to_entries[] | {Name:.value.Name, IPv4:.value.IPv4Address}'
+
+          echo "Checking that backend container is running (name starting with 'test-backend')..."
+          if ! docker ps --format '{{.Names}}' | grep -q '^test-backend-1$'; then
+            echo "❌ Container 'test-backend-1' not running."
+            docker ps --format 'table {{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Ports}}'
+            exit 1
+          fi
+
+          echo "Backend test containers:"
+          docker ps --filter "name=test-" \
+            --format 'table {{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Ports}}'
+
+          echo "Waiting for backend reachable at http://backend:8080/ on network ${TEST_NETWORK} ..."
+          for i in $(seq 1 30); do
+            STATUS=$(docker run --rm --network "${TEST_NETWORK}" curlimages/curl:8.10.1 \
+              -sS -o /dev/null -w "%{http_code}" "http://backend:8080/" 2>/dev/null || echo "curl_error")
+            if [ "$STATUS" != "curl_error" ]; then
+              echo "Backend is reachable, HTTP status: $STATUS"
+              break
+            fi
+            echo "Waiting for backend to be reachable... ($i, status: $STATUS)"
+            sleep 2
+          done
+
+      - name: Start SUT container (frontend)
+        run: |
+          docker rm -f "${SUT_NAME}" 2>/dev/null || true
+          echo "Starting SUT on network ${TEST_NETWORK} ..."
+          docker run -d \
+            --name "${SUT_NAME}" \
+            --network "${TEST_NETWORK}" \
+            -e ENV="test" \
+            -e BACKEND_HOST="backend:8080" \
+            -p 10.11.0.1:8080:80 \
+            ${{ vars.DOCKER_IMAGE }}:latest
+
+          docker ps -a --filter "name=${SUT_NAME}" \
+            --format 'table {{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Ports}}'
+
+
+      - name: Wait for SUT readiness
+        run: |
+          for i in $(seq 1 60); do
+            STATUS=$(curl -sS -o /dev/null -w "%{http_code}" "http://10.11.0.1:8080/" 2>/dev/null || echo "curl_error")
+            if [ "$STATUS" != "curl_error" ]; then
+              echo "SUT is responding via VPN-bind with HTTP status: $STATUS"
+              break
+            fi
+            echo "Waiting for SUT... (attempt $i, status: $STATUS)"
+            sleep 2
+          done
+
+      - name: Set SUT URL
+        id: get-url
+        run: |
+          echo "sut_base_url=http://10.11.0.1:8080" >> $GITHUB_OUTPUT
+          echo "✅ SUT URL exported: http://10.11.0.1:8080"
+
+  selenium-tests:
+    needs: setup-vpn-and-sut
+    runs-on: ubuntu-latest
+    env:
+      SUT_BASE_URL: ${{ needs.setup-vpn-and-sut.outputs.sut_base_url }}
+      CI: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install WireGuard
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wireguard
+
+      - name: Configure WireGuard for GitHub runner
+        env:
+          VPS_WG_PRIVKEY: ${{ secrets.VPS_WG_PRIVKEY }}
+          VPS_WG_PUBKEY: ${{ secrets.VPS_WG_PUBKEY }}
+          VPS_ENDPOINT: ${{ secrets.VPS_ENDPOINT }}
+        run: |
+          sudo mkdir -p /etc/wireguard
+
+          if [ -z "${VPS_WG_PRIVKEY}" ]; then
+            echo "Error: VPS_WG_PRIVKEY is not set"
+            exit 1
+          fi
+          if [ -z "${VPS_WG_PUBKEY}" ]; then
+            echo "Error: VPS_WG_PUBKEY is not set"
+            exit 1
+          fi
+          if [ -z "${VPS_ENDPOINT}" ]; then
+            echo "Error: VPS_ENDPOINT is not set"
+            exit 1
+          fi
+
+          # Write config to temp file first to avoid quoting issues
+          cat > /tmp/wg0.conf << 'EOF'
+          [Interface]
+          PrivateKey = PRIVKEY_PLACEHOLDER
+          Address = 10.11.0.24/24
+          MTU = 1200
+
+          [Peer]
+          PublicKey = PUBKEY_PLACEHOLDER
+          Endpoint = ENDPOINT_PLACEHOLDER
+          AllowedIPs = 10.11.0.0/24, 172.16.0.0/12
+          PersistentKeepalive = 25
+          EOF
+          # Replace placeholders with actual values
+          sed -i "s|PRIVKEY_PLACEHOLDER|${VPS_WG_PRIVKEY}|g" /tmp/wg0.conf
+          sed -i "s|PUBKEY_PLACEHOLDER|${VPS_WG_PUBKEY}|g" /tmp/wg0.conf
+          sed -i "s|ENDPOINT_PLACEHOLDER|${VPS_ENDPOINT}|g" /tmp/wg0.conf
+          # Move to final location with proper permissions
+          sudo mv /tmp/wg0.conf /etc/wireguard/wg0.conf
+          sudo chmod 600 /etc/wireguard/wg0.conf
+          sudo cat /etc/wireguard/wg0.conf  # Debug: verify format
+
+      - name: Connect VPN and verify SUT
+        run: |
+          sudo wg-quick up wg0
+
+          if [ -z "${SUT_BASE_URL}" ]; then
+            echo "Error: SUT_BASE_URL is empty"
+            exit 1
+          fi
+
+          echo "SUT_BASE_URL=${SUT_BASE_URL}"
+          curl -v --connect-timeout 5 "${SUT_BASE_URL}/" || true
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: frontend_testing/pom.xml
+
+      - name: Run tests
+        run: |
+          cd frontend_testing
+          mvn clean test -Dsut.base.url="${SUT_BASE_URL}"
+
+      - name: Generate Allure Report
+        if: always()
+        run: |
+          cd frontend_testing
+          mvn allure:report
+
+      - name: Upload Allure Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-report
+          path: frontend_testing/target/site/allure-maven-plugin/
+          retention-days: 5
+
+      - name: Publish Test Report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: Selenium Test Results
+          path: 'frontend_testing/target/surefire-reports/*.xml'
+          reporter: java-junit
+          fail-on-error: false
+
+      - name: Publish test results to Jira
+        if: always()
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USERNAME: ${{ secrets.JIRA_USERNAME }}
+          JIRA_PASSWORD: ${{ secrets.JIRA_PASSWORD }}
+        run: |
+          cd frontend_testing
+          mvn xray:import-results
+
+      - name: Disconnect VPN
+        if: always()
+        run: |
+          sudo wg-quick down wg0 || true
+
+  cleanup:
+    needs: [setup-vpn-and-sut, selenium-tests]
+    runs-on: self-hosted
+    if: always()
+    env:
+      SUT_NAME: ci-sut
+
+    steps:
+      - name: Cleanup SUT
+        run: |
+          docker rm -f "${SUT_NAME}" 2>/dev/null || true
