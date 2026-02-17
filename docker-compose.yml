@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: app_db
+      MYSQL_USER: app_user
+      MYSQL_PASSWORD: dev_password
+      MYSQL_ROOT_PASSWORD: dev_root_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u$$MYSQL_USER", "-p$$MYSQL_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # Web UI
+    environment:
+      MP_MAX_MESSAGES: "1000"
+
+  backend:
+    build:
+      context: ./openinzichten-backend
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/app_db
+      SPRING_DATASOURCE_USERNAME: app_user
+      SPRING_DATASOURCE_PASSWORD: dev_password
+      # Spring Boot Mail Configuration for Mailpit
+      SPRING_MAIL_HOST: mailpit
+      SPRING_MAIL_PORT: 1025
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH: "false"
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE: "false"
+      # Application Secrets (These should be set in your .env or shell, but defaults provided for dev)
+      OPENROUTER_KEY: ${OPENROUTER_API_KEY:-placeholder_key}
+      APP_JWT_SECRET: ${APP_JWT_SECRET:-} # If empty, app generates random one
+      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:-}
+    depends_on:
+      db:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./openinzichten-frontend
+      dockerfile: docker/Dockerfile
+    ports:
+      - "80:80"
+    environment:
+      # MUST define port 8080 for backend access, but NO protocol (http://) to avoid double prefix in nginx config
+      BACKEND_HOST: backend:8080
+    depends_on:
+      backend:
+        condition: service_started
+
+volumes:
+  db_data:

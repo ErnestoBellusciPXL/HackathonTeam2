@@ -1,0 +1,30 @@
+version: "3.8"
+
+services:
+  backend:
+    image: maven:3.9.5-eclipse-temurin-21
+    volumes:
+      - ./openinzichten-backend:/workspace
+      - maven-repo:/root/.m2
+    working_dir: /workspace
+    # mvn spring-boot:run will watch for source changes and restart
+    command: mvn spring-boot:run -Dspring-boot.run.jvmArguments="-Dspring.devtools.restart.enabled=true"
+    ports:
+      - "8080:8080"
+    # Inherits environment variables (DB_URL, etc.) from docker-compose.yml
+
+  frontend:
+    image: node:20-alpine
+    volumes:
+      - ./openinzichten-frontend:/app
+      - node_modules:/app/node_modules
+    working_dir: /app
+    # Run npm install first to populate the volume, then start dev server
+    command: sh -c "npm install && npm run dev"
+    ports:
+      - "5173:5173"
+
+volumes:
+  maven-repo:
+  node_modules:
+  db_data:
