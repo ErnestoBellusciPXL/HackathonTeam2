@@ -5,12 +5,12 @@
             <p class="text-gray-600 mb-4">Jouw ervaring kan anderen helpen.</p>
 
             <form class="rounded-lg border-2 border-purple-600 p-5 bg-white" @submit.prevent>
-                
+
                 <!-- STEP 0: MODE SELECTION -->
                 <div v-if="currentStep === 0" class="py-6">
                     <h2 class="text-xl font-bold mb-6 text-center text-brand-purple">Hoe wil je je verhaal maken?</h2>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div 
+                        <div
                             class="p-6 border-2 border-gray-200 rounded-xl hover:border-brand-purple hover:bg-brand-purple/5 transition-all cursor-pointer flex flex-col items-center text-center group"
                             @click="selectMode('interview')"
                         >
@@ -22,7 +22,7 @@
                             <Button3D variant="primary" class="mt-6 w-full" @click.stop="selectMode('interview')">Start Interview</Button3D>
                         </div>
 
-                        <div 
+                        <div
                             class="p-6 border-2 border-gray-200 rounded-xl hover:border-brand-purple hover:bg-brand-purple/5 transition-all cursor-pointer flex flex-col items-center text-center group"
                             @click="selectMode('self-write')"
                         >
@@ -169,7 +169,7 @@
 
                         <div class="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
                              <!-- Add Delete Button if editing -->
-                            <Button3D 
+                            <Button3D
                                 v-if="storyDetailStore.story?.id"
                                 variant="danger"
                                 @click="showDeleteConfirm = true"
@@ -177,7 +177,7 @@
                             >
                                 Verwijder Verhaal
                             </Button3D>
-                            
+
                             <Button3D variant="primary" @click="handleValidateStory" class="w-full sm:w-auto">
                                 Controleer <IconSparkle v-if="creationMode === 'self-write'" class="w-4 h-4 ml-1 inline" />
                             </Button3D>
@@ -209,7 +209,7 @@
                 <!-- STEP 5: FINAL APPROVAL -->
                 <div v-else-if="currentStep === 5">
                     <h2 class="text-lg font-semibold mb-3">{{ isRejected ? 'Verhaal afgewezen' : 'Stap 3: Klaar voor publicatie' }}</h2>
-                    
+
                     <!-- REJECTION STATE -->
                     <div v-if="isRejected" class="mb-6">
                         <div class="p-5 bg-red-50 border-2 border-red-200 rounded-xl text-red-800">
@@ -218,7 +218,7 @@
                                 <h3 class="font-bold text-lg">Inhoud voldoet niet aan de richtlijnen</h3>
                             </div>
                             <p class="mb-4">Je verhaal bevat inhoud die niet is toegestaan op dit platform (zoals vulgair taalgebruik, beledigingen of ongepaste details). Pas je verhaal aan om verder te kunnen.</p>
-                            
+
                             <div v-if="validationResult?.changes && validationResult.changes.length > 0" class="mt-4 pt-4 border-t border-red-100">
                                 <p class="font-bold text-sm uppercase mb-2">Reden van afwijzing:</p>
                                 <ul class="list-disc list-inside text-sm space-y-1">
@@ -237,7 +237,7 @@
                     <!-- SUCCESS STATE -->
                     <template v-else>
                         <div v-if="validationResult?.changes && validationResult.changes.length > 0" class="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-md">
-                            <h3 class="font-bold text-blue-800 mb-2">Wijzigingen door moderator:</h3>
+                            <h3 class="font-bold text-blue-800 mb-2">Wijzigingen:</h3>
                             <ul class="list-disc list-inside text-sm text-blue-800 space-y-1">
                                 <li v-for="(change, idx) in validationResult.changes" :key="idx">
                                     <span class="font-semibold">{{ change.reason }}:</span> {{ change.description }}
@@ -354,9 +354,9 @@ onMounted(async () => {
             selectedConditions.value = [userConditions.value[0].name];
         }
     }
-    
+
     // Check if editing existing story (Legacy support? Or just block editing old stories with wizard?)
-    // For now, if editing, we might need to skip wizard or populate answers? 
+    // For now, if editing, we might need to skip wizard or populate answers?
     // The plan implies a new creation flow. Let's assume for now this is primarily for new stories.
     // However, if the user requested "editable text area", we can support loading existing content into Step 3 immediately.
     await storyDetailStore.fetchMyStory();
@@ -365,7 +365,7 @@ onMounted(async () => {
         form.value.title = storyDetailStore.story.title;
         form.value.content = storyDetailStore.story.content;
         selectedConditions.value = storyDetailStore.story.conditionNames;
-        currentStep.value = 3; 
+        currentStep.value = 3;
     }
 });
 
@@ -399,7 +399,7 @@ function prevQuestion() {
 async function handleGenerateStory() {
     currentStep.value = 2; // Loading
     const result = await storyStore.generateStory(answers.value);
-    
+
     if (result.state === "success") {
         form.value.content = result.response.reformattedStoryContent;
         // Generate a placeholder title or leave empty
@@ -425,7 +425,7 @@ async function handleValidateStory() {
 
     currentStep.value = 4; // Validating
     const result = await storyStore.validateStory(form.value.title, form.value.content);
-    
+
     if (result.state === "success") {
         validationResult.value = result.response;
         currentStep.value = 5; // Final
