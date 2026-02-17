@@ -22,6 +22,7 @@ RUN apt-get update && apt-get install -y netcat-openbsd && rm -rf /var/lib/apt/l
 
 # Copy the wait-for-db script into /app
 COPY ./docker/wait-for-db.sh /app/wait-for-db.sh
+RUN sed -i 's/\r$//' /app/wait-for-db.sh
 RUN chmod +x /app/wait-for-db.sh
 
 # Expose backend port

@@ -79,9 +79,15 @@ class AIServiceTest {
         // Create a mock Resource for the system prompt
         systemPromptResource = mock(Resource.class);
         when(systemPromptResource.getContentAsString(any())).thenReturn(TEST_SYSTEM_PROMPT);
+        
+        Resource genPrompt = mock(Resource.class);
+        when(genPrompt.getContentAsString(any())).thenReturn("Gen Prompt");
+        
+        Resource valPrompt = mock(Resource.class);
+        when(valPrompt.getContentAsString(any())).thenReturn("Val Prompt");
 
         // Initialize AIService with the mocked builder and resource
-        aiService = new AIService(builder, systemPromptResource);
+        aiService = new AIService(builder, systemPromptResource, genPrompt, valPrompt);
     }
 
     @ParameterizedTest
@@ -145,9 +151,15 @@ class AIServiceTest {
         
         Resource customResource = mock(Resource.class);
         when(customResource.getContentAsString(any())).thenReturn(customPrompt);
+        
+        Resource genPrompt = mock(Resource.class);
+        when(genPrompt.getContentAsString(any())).thenReturn("Gen Prompt");
+        
+        Resource valPrompt = mock(Resource.class);
+        when(valPrompt.getContentAsString(any())).thenReturn("Val Prompt");
 
         // Act
-        AIService customService = new AIService(customBuilder, customResource);
+        AIService customService = new AIService(customBuilder, customResource, genPrompt, valPrompt);
 
         // Assert
         assertThat(customService).isNotNull();
@@ -164,10 +176,16 @@ class AIServiceTest {
         
         Resource emptyResource = mock(Resource.class);
         when(emptyResource.getContentAsString(any())).thenReturn(emptyPrompt);
+        
+        Resource genPrompt = mock(Resource.class);
+        when(genPrompt.getContentAsString(any())).thenReturn("Gen Prompt");
+        
+        Resource valPrompt = mock(Resource.class);
+        when(valPrompt.getContentAsString(any())).thenReturn("Val Prompt");
 
         // Act & Assert
         // Spring AI's SystemPromptTemplate doesn't allow empty templates
-        assertThatThrownBy(() -> new AIService(emptyBuilder, emptyResource))
+        assertThatThrownBy(() -> new AIService(emptyBuilder, emptyResource, genPrompt, valPrompt))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("template cannot be null or empty");
     }

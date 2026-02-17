@@ -67,7 +67,7 @@ public class AuthController {
         }
 
         var token = jwtService.generateToken(account.getId(), account.getUsername(), account.getEmail(), account.getRoles(),
-                req.getRememberMe());
+                Boolean.TRUE.equals(req.getRememberMe()));
         var response = new AuthResponse(token);
         return ResponseEntity.ok(response);
     }

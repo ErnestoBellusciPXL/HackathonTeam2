@@ -157,7 +157,7 @@ values that can / need to be changed.
 
 - `spring.ai.openai.api-key`: **THIS ONE IS A MUST CHANGE!**, put here the OpenRouter API key that you use to access OpenRouter models.
 - `app.ai.system-prompt`: This one is a _can_ change, not really necessary. The system prompt we use is just a basic one that allows for the AI to reformat the story text. Can be rewritten or adjusted to fine tune its functionality.
-- `spring.ai.openai.chat.options.model`: This one is a _can_ change. We use `openai/gpt-oss-20b:nitro` as our model. GPT-OSS-20B seems like more than enough for our use-case. the `:nitro` routes it to the fastest provider for the model on OpenRouter.
+- `spring.ai.openai.chat.options.model`: This one is a _can_ change. We use `openai/gpt-oss-120b:nitro` as our model. gpt-oss-120b seems like more than enough for our use-case. the `:nitro` routes it to the fastest provider for the model on OpenRouter.
 - `spring.ai.openai.base-url`: This one you should **not** change. We have set it to `https://openrouter.ai/api` since it uses an OpenAI-compatible API. This is how we communicate with OpenRouter. Of course, if there is a need to switch to another provider that is not OpenRouter, you should change this, but as long as we are using models through OpenRouter we should keep this.
 
 ## Project Structure

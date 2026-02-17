@@ -1,9 +1,12 @@
 package be.codeforbelgium.openinzichten.api.controllers;
 
 import be.codeforbelgium.openinzichten.annotation.RateLimit;
+import be.codeforbelgium.openinzichten.api.request.StoryGenerationRequest;
 import be.codeforbelgium.openinzichten.api.request.StoryReformatRequest;
 import be.codeforbelgium.openinzichten.api.request.StoryRequest;
 import be.codeforbelgium.openinzichten.api.request.StoryUpdateRequest;
+import be.codeforbelgium.openinzichten.api.request.StoryValidationRequest;
+import be.codeforbelgium.openinzichten.api.response.StoryValidationResponse;
 import be.codeforbelgium.openinzichten.api.response.StoryReformatResponse;
 import be.codeforbelgium.openinzichten.api.response.StoryResponse;
 import be.codeforbelgium.openinzichten.domain.Story;
@@ -153,6 +156,24 @@ public class StoryController {
         }
         storyService.deleteStoryForUser(username, id);
         return ResponseEntity.noContent().build();
+    }
+
+    @RateLimit(requests = 5, perSeconds = 3600)
+    @PostMapping("/ai/generate")
+    public ResponseEntity<StoryReformatResponse> generateStory(@Valid @RequestBody be.codeforbelgium.openinzichten.api.request.StoryGenerationRequest request) {
+        String generatedStory = aiService.generateStory(request.getInputs());
+        
+        StoryReformatResponse response = new StoryReformatResponse();
+        response.setReformattedStoryContent(generatedStory);
+        
+        return ResponseEntity.ok(response);
+    }
+
+    @RateLimit(requests = 5, perSeconds = 3600)
+    @PostMapping("/ai/validate")
+    public ResponseEntity<be.codeforbelgium.openinzichten.api.response.StoryValidationResponse> validateStory(@Valid @RequestBody be.codeforbelgium.openinzichten.api.request.StoryValidationRequest request) {
+        var response = aiService.validateAndFix(request.getTitle(), request.getContent());
+        return ResponseEntity.ok(response);
     }
 
     private Optional<String> getAuthenticatedUsername() {
